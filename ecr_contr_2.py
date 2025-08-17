@@ -6,20 +6,21 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 import shlex
+import os
 # ==============================================================================
 # 1. INITIAL SETUP & CONFIGURATION
 # ==============================================================================
 app = Flask(__name__)
 CORS(app, origins=["http://localhost:3000","http://livelabs.nitor.in"])
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://username:mypassword@livelabs.nitor.in:5432/poc_showcase'
+app.config['SQLALCHEMY_DATABASE_URI'] = xxxxxxxxxxxxxxxxxxxxxxxxxx
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
 # --- AWS Configuration ---
 AWS_REGION       = 'us-east-2'
-ECR_ACCOUNT_ID   = '231733667519'
+ECR_ACCOUNT_ID   = xxxxxxxxxxxxxxxxxxxxxxx
 ecr = boto3.client('ecr', region_name=AWS_REGION)
 
 # ==============================================================================
@@ -217,9 +218,26 @@ def run_container(config: dict, image_uri: str):
     subprocess.call(['docker', 'stop', container_name])
     subprocess.call(['docker', 'rm', container_name])
 
+    # --- NEW: Make env-file path absolute ---
+    # This ensures that relative paths in startup commands work correctly
+    command_parts = shlex.split(startup_command)
+    try:
+        env_file_index = command_parts.index('--env-file')
+        if env_file_index + 1 < len(command_parts):
+            env_file_path = command_parts[env_file_index + 1]
+            if not os.path.isabs(env_file_path):
+                # Assumes script is two levels deep from project root (e.g., /app/ecr_controller/ecr_contr_2.py)
+                project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+                abs_env_file_path = os.path.join(project_root, env_file_path)
+                command_parts[env_file_index + 1] = abs_env_file_path
+                print(f"--- Resolved relative --env-file path to: {abs_env_file_path} ---")
+    except ValueError:
+        # --env-file not in command, do nothing
+        pass
+
+
     # Build the command safely
-    # Using shlex.split() is safer than cmd.split() for commands with quoted arguments
-    cmd_parts = ['docker', 'run', '--name', container_name] + shlex.split(startup_command) + [image_uri]
+    cmd_parts = ['docker', 'run', '--name', container_name] + command_parts + [image_uri]
 
     print(f"--- Attempting to run container: {container_name} ---")
     print(f"--- Full command parts: {cmd_parts} ---")
