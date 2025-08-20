@@ -11,16 +11,16 @@ import os
 # 1. INITIAL SETUP & CONFIGURATION
 # ==============================================================================
 app = Flask(__name__)
-CORS(app, origins=["http://localhost:3000","http://livelabs.nitor.in"])
+CORS(app, origins=["http://localhost:3000","http://livelabs.nitor.in", "https://livelabs.nitor.in"])
 
-app.config['SQLALCHEMY_DATABASE_URI'] = xxxxxxxxxxxxxxxxxxxxxxxxxx
+app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://username:mypassword@livelabs.nitor.in:5432/poc_showcase'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
 # --- AWS Configuration ---
 AWS_REGION       = 'us-east-2'
-ECR_ACCOUNT_ID   = xxxxxxxxxxxxxxxxxxxxxxx
+ECR_ACCOUNT_ID   = '231733667519'
 ecr = boto3.client('ecr', region_name=AWS_REGION)
 
 # ==============================================================================
