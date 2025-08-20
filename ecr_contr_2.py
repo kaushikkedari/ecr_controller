@@ -17,66 +17,6 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://username:mypassword@livela
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
-import jwt
-import requests
-from functools import wraps
-from flask import request, jsonify
-
-# --- Configuration for Entra ID Token Validation ---
-# You must fill these in with your actual values from Azure
-TENANT_ID = "8c3dad1d-b6bc-4f8b-939b-8263372eced6" # The Tenant ID you used in the frontend
-CLIENT_ID = "a8a9da12-660a-40bf-a99f-ecac6dee26eb" # The Client ID you used in the frontend
-
-# Microsoft's well-known discovery endpoint for your tenant
-JWKS_URL = f"https://login.microsoftonline.com/{TENANT_ID}/discovery/v2.0/keys"
-
-# Fetch the public keys from Microsoft
-jwks_client = jwt.PyJWKClient(JWKS_URL)
-
-
-def token_required(f):
-    """
-    A decorator to protect API endpoints.
-    It checks for a valid JWT in the 'Authorization' header.
-    """
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        token = None
-        # Check if the Authorization header is present
-        if 'Authorization' in request.headers:
-            # The header should be in the format "Bearer <token>"
-            auth_header = request.headers['Authorization']
-            parts = auth_header.split()
-            if len(parts) == 2 and parts[0].lower() == 'bearer':
-                token = parts[1]
-
-        if not token:
-            return jsonify({'message': 'Token is missing!'}), 401
-
-        try:
-            # Get the correct signing key from Microsoft's public keys
-            signing_key = jwks_client.get_signing_key_from_jwt(token).key
-            
-            # Decode and validate the token
-            payload = jwt.decode(
-                token,
-                signing_key,
-                algorithms=["RS256"],
-                audience=CLIENT_ID,
-                issuer=f"https://login.microsoftonline.com/{TENANT_ID}/v2.0"
-            )
-            # You can optionally get the user's identity from the payload
-            # current_user = payload 
-        except jwt.ExpiredSignatureError:
-            return jsonify({'message': 'Token has expired!'}), 401
-        except jwt.InvalidTokenError as e:
-            return jsonify({'message': f'Token is invalid! {e}'}), 401
-
-        # If token is valid, proceed with the original function
-        return f(*args, **kwargs)
-
-    return decorated
-
 
 # --- AWS Configuration ---
 AWS_REGION       = 'us-east-2'
@@ -152,7 +92,6 @@ class Project(db.Model):
 
 
 @app.route('/projects', methods=['POST'])
-@token_required
 def add_project():
     """
     API Endpoint 1: Adds a new project configuration to the database.
@@ -335,7 +274,6 @@ def get_running_containers():
         return None
     
 @app.route('/start/<project_name>', methods=['POST'])
-@token_required
 def start(project_name: str):
     """Endpoint to pull & start a container by fetching its config from the DB."""
     project_name = project_name.strip()
@@ -354,7 +292,6 @@ def start(project_name: str):
         return jsonify({"status": "error", "project": project_name, "message": f"An unexpected error occurred: {str(e)}"}), 500
 
 @app.route('/stop/<project_name>', methods=['POST'])
-@token_required
 def stop(project_name: str):
     """Endpoint to stop & remove a container by fetching its config from the DB."""
     project_name = project_name.strip()
@@ -396,7 +333,6 @@ def status():
     return jsonify(project_statuses)
 
 @app.route('/projects/<string:project_name>', methods=['PUT'])
-@token_required
 def update_project(project_name):
     """
     API Endpoint 4: Updates an existing project's configuration.
