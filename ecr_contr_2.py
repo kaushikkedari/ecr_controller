@@ -7,6 +7,10 @@ from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 import shlex
 import os
+import jwt
+from functools import wraps
+import requests
+
 # ==============================================================================
 # 1. INITIAL SETUP & CONFIGURATION
 # ==============================================================================
@@ -23,6 +27,52 @@ AWS_REGION       = 'us-east-2'
 ECR_ACCOUNT_ID   = '231733667519'
 ecr = boto3.client('ecr', region_name=AWS_REGION)
 
+# --- Entra ID Configuration ---
+TENANT_ID = "8c3dad1d-b6bc-4f8b-939b-8263372eced6"
+CLIENT_ID = "a8a9da12-660a-40bf-a99f-ecac6dee26eb"
+ISSUER = f"https://login.microsoftonline.com/{TENANT_ID}/v2.0"
+JWKS_URI = f"https://login.microsoftonline.com/{TENANT_ID}/discovery/v2.0/keys"
+
+# Helper to get public key
+def get_jwks():
+    return requests.get(JWKS_URI).json()
+
+def get_public_key(kid):
+    jwks = get_jwks()
+    for key in jwks['keys']:
+        if key['kid'] == kid:
+            return jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(key))
+    raise ValueError("Public key not found.")
+
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = None
+        if 'Authorization' in request.headers:
+            token = request.headers['Authorization'].split(" ")[1]
+
+        if not token:
+            return jsonify({'message': 'Token is missing!'}), 401
+
+        try:
+            unverified_header = jwt.get_unverified_header(token)
+            kid = unverified_header['kid']
+            public_key = get_public_key(kid)
+            
+            jwt.decode(
+                token,
+                public_key,
+                algorithms=["RS256"],
+                audience=CLIENT_ID,
+                issuer=ISSUER
+            )
+        except jwt.ExpiredSignatureError:
+            return jsonify({'message': 'Token has expired!'}), 401
+        except Exception as e:
+            return jsonify({'message': f'Token is invalid! {str(e)}'}), 401
+
+        return f(*args, **kwargs)
+    return decorated
 # ==============================================================================
 # 2. DATABASE MODEL DEFINITION
 # ==============================================================================
@@ -92,6 +142,7 @@ class Project(db.Model):
 
 
 @app.route('/projects', methods=['POST'])
+@token_required
 def add_project():
     """
     API Endpoint 1: Adds a new project configuration to the database.
@@ -157,6 +208,7 @@ def add_project():
 
 
 @app.route('/projects/<string:project_name>', methods=['GET'])
+@token_required
 def get_project(project_name):
     """
     API Endpoint 2: Gets the configuration for a specific project from the database.
@@ -274,6 +326,7 @@ def get_running_containers():
         return None
     
 @app.route('/start/<project_name>', methods=['POST'])
+@token_required
 def start(project_name: str):
     """Endpoint to pull & start a container by fetching its config from the DB."""
     project_name = project_name.strip()
@@ -292,6 +345,7 @@ def start(project_name: str):
         return jsonify({"status": "error", "project": project_name, "message": f"An unexpected error occurred: {str(e)}"}), 500
 
 @app.route('/stop/<project_name>', methods=['POST'])
+@token_required
 def stop(project_name: str):
     """Endpoint to stop & remove a container by fetching its config from the DB."""
     project_name = project_name.strip()
@@ -309,6 +363,7 @@ def stop(project_name: str):
         return jsonify({"status": "error", "project": project_name, "message": f"An unexpected error occurred: {str(e)}"}), 500
 
 @app.route('/status', methods=['GET'])
+@token_required
 def status():
     """Endpoint to get the status of all projects defined in the database."""
     running_containers = get_running_containers()
@@ -333,6 +388,7 @@ def status():
     return jsonify(project_statuses)
 
 @app.route('/projects/<string:project_name>', methods=['PUT'])
+@token_required
 def update_project(project_name):
     """
     API Endpoint 4: Updates an existing project's configuration.
